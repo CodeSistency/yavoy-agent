@@ -20,11 +20,12 @@ El agente utiliza una arquitectura de **micro-agentes** especializados:
 
 ```
 MobilityAgent (Orquestador)
-├── GeoFilter_Tool (Geocodificación)
+├── GoogleMapsGrounding_Tool (Búsqueda de lugares)
+├── DistanceMatrix_Tool (Estimación de precios por tipo de vehículo)
 ├── MicroAdjust_Tool (Ajustes relativos)
 ├── TripState_Tool (Estado de viaje)
 ├── Preference_Tool (Preferencias usuario)
-├── RouteCalculator_Tool (Cálculo de rutas)
+├── RouteCalculator_Tool (Cálculo de rutas completo)
 ├── HumanInLoop_Tool (Desambiguación)
 └── AuditLog_Tool (Observabilidad)
 ```
@@ -67,16 +68,24 @@ import { mastra } from './src/mastra/index';
 const agent = mastra.getAgent('mobilityAgent');
 
 // Interactuar con el agente
+// IMPORTANTE: Usa maxSteps para permitir múltiples iteraciones y completar el flujo automáticamente
 const response = await agent.generate(
   'Necesito un viaje desde mi casa hasta el aeropuerto',
   {
     threadId: 'user-123-session-1',
     resourceId: 'user-123',
+    maxSteps: 10, // Permite que el agente complete el flujo completo automáticamente
   }
 );
 
 console.log(response.text);
 ```
+
+**Nota sobre `maxSteps`:**
+- **Valor por defecto:** 1 (solo una iteración)
+- **Recomendado:** 10 para flujos complejos que requieren múltiples herramientas
+- El agente está configurado para completar automáticamente el flujo completo (búsqueda → estado → ruta) cuando tiene toda la información
+- Con `maxSteps: 10`, el agente puede usar múltiples herramientas en secuencia sin requerir interacciones adicionales del usuario
 
 ### Ejemplo con Streaming
 
@@ -86,6 +95,7 @@ const stream = await agent.stream(
   {
     threadId: 'user-123-session-1',
     resourceId: 'user-123',
+    maxSteps: 10, // También funciona con streaming
   }
 );
 
@@ -130,6 +140,20 @@ await agent.voice.send(micStream);
 
 ## 📝 Ejemplos de Comandos
 
+### Comportamiento Inteligente del Agente
+
+El agente es inteligente sobre cuándo buscar automáticamente y cuándo preguntar:
+
+**Busca automáticamente** cuando el usuario proporciona lugares específicos:
+- "Aeropuerto Internacional"
+- "Plaza Bolívar"
+- "Restaurante El Jardín"
+- "Centro Comercial Sambil"
+
+**Pregunta por ubicación exacta** cuando el usuario proporciona solo nombres de ciudades (muy ambiguos):
+- "Caracas" → Pregunta: "¿A qué lugar exacto en Caracas quieres ir?"
+- "San Juan de los Morros" → Pregunta: "¿Cuál es la dirección exacta en San Juan de los Morros?"
+
 ### Búsqueda de Ubicación (usando Google Maps Grounding)
 ```
 Usuario: "Busca el aeropuerto más cercano"
@@ -143,6 +167,14 @@ Usuario: "Quiero ir desde mi casa hasta el centro comercial"
 Usuario: "Cambia mi destino al restaurante X"
 Usuario: "Agrega una parada en la farmacia"
 ```
+
+**Nota sobre el flujo de precios:**
+- Cuando el agente tiene origen y destino con coordenadas exactas:
+  1. Primero usa Distance Matrix API para obtener distancia, tiempo y precios estimados para TODOS los tipos de vehículos (moto, economy, comfort, premium, xl)
+  2. Presenta las opciones de precio al usuario
+  3. Pregunta: "¿Deseas proceder con el viaje? ¿Qué tipo de vehículo prefieres?"
+  4. Espera la confirmación y selección del usuario
+  5. Luego calcula la ruta completa con el tipo de vehículo seleccionado usando Directions API
 
 ### Ajustes Relativos
 ```

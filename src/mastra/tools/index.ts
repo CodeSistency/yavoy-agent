@@ -4,6 +4,7 @@ export { microAdjustTool } from './micro-adjust-tool';
 export { tripStateTool } from './trip-state-tool';
 export { preferenceTool } from './preference-tool';
 export { routeCalculatorTool } from './route-calculator-tool';
+export { distanceMatrixTool } from './distance-matrix-tool';
 export { humanInLoopTool } from './human-in-loop-tool';
 export { auditLogTool } from './audit-log-tool';
 

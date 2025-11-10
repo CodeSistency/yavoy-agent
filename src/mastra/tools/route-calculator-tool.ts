@@ -60,7 +60,7 @@ export const routeCalculatorTool = createTool({
       avoidTolls: z.boolean().optional().describe('Evitar autopistas de peaje'),
       avoidHighways: z.boolean().optional().describe('Evitar autopistas'),
     }).optional().describe('Preferencias de ruta'),
-    vehicleType: z.enum(['economy', 'comfort', 'premium']).optional().describe('Tipo de vehículo para cálculo de precio'),
+    vehicleType: z.enum(['moto', 'economy', 'comfort', 'premium', 'xl']).optional().describe('Tipo de vehículo para cálculo de precio'),
   }),
   outputSchema: z.object({
     route: z.object({
@@ -82,6 +82,7 @@ export const routeCalculatorTool = createTool({
       estimatedArrival: z.string().describe('Fecha/hora estimada de llegada (ISO format)'),
       estimatedDuration: z.string().describe('Duración estimada en formato legible (ej: "15 minutos")'),
     }).describe('Estimación de tiempo de llegada'),
+    warning: z.string().optional().describe('Advertencia sobre el cálculo (ej: si se usó cálculo estimado en lugar de Google Maps)'),
   }),
   execute: async ({ context }) => {
     const { origin, destination, waypoints, preferences, vehicleType } = context;
@@ -169,8 +170,55 @@ export const routeCalculatorTool = createTool({
       
       const routeData = await response.json();
       
-      // Verificar si hay errores en la respuesta
+      // Manejar diferentes estados de respuesta de Google Maps Directions API
+      if (routeData.status === 'ZERO_RESULTS') {
+        // No se encontró ruta - usar cálculo estimado como fallback
+        console.warn('[Route Calculator] ZERO_RESULTS from Google Maps - using estimated calculation as fallback');
+        const estimatedRoute = estimateRoute(normalizedOrigin, normalizedDestination, normalizedWaypoints);
+        const pricing = calculatePricing(estimatedRoute.distance, estimatedRoute.duration, vehicleType || 'economy');
+        const now = new Date();
+        const arrivalTime = new Date(now.getTime() + estimatedRoute.duration * 1000);
+        const durationMinutes = Math.round(estimatedRoute.duration / 60);
+        
+        return {
+          route: {
+            distance: Math.round(estimatedRoute.distance),
+            duration: Math.round(estimatedRoute.duration),
+          },
+          pricing,
+          eta: {
+            estimatedArrival: arrivalTime.toISOString(),
+            estimatedDuration: `${durationMinutes} minutos`,
+          },
+          warning: 'No se encontró una ruta directa en Google Maps. Se usó un cálculo estimado basado en distancia en línea recta. La ruta real puede variar.',
+        };
+      }
+      
       if (routeData.status !== 'OK') {
+        // Para otros errores, intentar con cálculo estimado si es posible
+        if (routeData.status === 'NOT_FOUND' || routeData.status === 'INVALID_REQUEST') {
+          console.warn(`[Route Calculator] ${routeData.status} from Google Maps - using estimated calculation as fallback`);
+          const estimatedRoute = estimateRoute(normalizedOrigin, normalizedDestination, normalizedWaypoints);
+          const pricing = calculatePricing(estimatedRoute.distance, estimatedRoute.duration, vehicleType || 'economy');
+          const now = new Date();
+          const arrivalTime = new Date(now.getTime() + estimatedRoute.duration * 1000);
+          const durationMinutes = Math.round(estimatedRoute.duration / 60);
+          
+          return {
+            route: {
+              distance: Math.round(estimatedRoute.distance),
+              duration: Math.round(estimatedRoute.duration),
+            },
+            pricing,
+            eta: {
+              estimatedArrival: arrivalTime.toISOString(),
+              estimatedDuration: `${durationMinutes} minutos`,
+            },
+            warning: `Google Maps no pudo calcular la ruta (${routeData.status}). Se usó un cálculo estimado.`,
+          };
+        }
+        
+        // Para otros errores críticos, lanzar excepción
         throw new Error(`Google Maps Directions API error: ${routeData.status} - ${routeData.error_message || 'Unknown error'}`);
       }
       
@@ -279,7 +327,7 @@ function estimateRoute(
 function calculatePricing(
   distanceMeters: number,
   durationSeconds: number,
-  vehicleType: 'economy' | 'comfort' | 'premium'
+  vehicleType: 'moto' | 'economy' | 'comfort' | 'premium' | 'xl'
 ): {
   estimatedPrice: number;
   currency: string;
@@ -294,22 +342,29 @@ function calculatePricing(
   const durationMinutes = durationSeconds / 60;
   
   // Tarifas base (en USD, ajustar según mercado)
+  // Deben coincidir con las tarifas en distance-matrix-tool.ts
   const baseFares = {
+    moto: 1.5,
     economy: 2.5,
     comfort: 4.0,
     premium: 6.0,
+    xl: 5.0,
   };
   
   const perKmRates = {
+    moto: 0.8,
     economy: 1.2,
     comfort: 1.8,
     premium: 2.5,
+    xl: 2.0,
   };
   
   const perMinuteRates = {
+    moto: 0.15,
     economy: 0.25,
     comfort: 0.35,
     premium: 0.50,
+    xl: 0.40,
   };
   
   const baseFare = baseFares[vehicleType];
