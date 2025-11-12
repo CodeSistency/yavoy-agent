@@ -1,17 +1,27 @@
 import { Mastra } from '@mastra/core/mastra';
 import { PinoLogger } from '@mastra/loggers';
 import { LibSQLStore } from '@mastra/libsql';
+import { orchestratorAgent } from './agents/orchestrator-agent';
 import { mobilityAgent } from './agents/mobility-agent';
+import { customerServiceAgent } from './agents/customer-service-agent';
+import { driverServiceAgent } from './agents/driver-service-agent';
 
 export const mastra = new Mastra({
-  agents: { mobilityAgent },
+  // Registro de todos los agentes individualmente
+  // El orchestrator agent también tiene acceso a los subagentes a través de su propiedad 'agents'
+  agents: {
+    orchestratorAgent,
+    mobilityAgent,
+    customerServiceAgent,
+    driverServiceAgent,
+  },
   storage: new LibSQLStore({
     // stores observability, scores, ... into memory storage
     // Using file storage for persistence
     url: 'file:../mastra.db',
   }),
   logger: new PinoLogger({
-    name: 'MobilityAgent',
+    name: 'YaVoyAgent',
     level: 'info',
   }),
   telemetry: {
